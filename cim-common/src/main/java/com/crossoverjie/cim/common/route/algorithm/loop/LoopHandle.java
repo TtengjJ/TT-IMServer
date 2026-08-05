@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Function:
+ * 轮询选服。列表为空 → SERVER_NOT_AVAILABLE。
  *
  * @author crossoverJie
  * Date: 2019-02-27 15:13

@@ -38,7 +38,18 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import static com.crossoverjie.cim.common.enums.StatusEnum.OFF_LINE;
 
 /**
- * Function:
+ * Route 控制面 HTTP 入口（实现 RouteApi）。
+ * <p>
+ * 【总览】Client/Server 通过 HTTP 调用本类；长连接推送在 cim-server。
+ * 中间件：Spring MVC、Redis（账号/路由）、Zookeeper MetaStore（可用 Server）、
+ * OkHttp/RpcProxy（push 时调 ServerApi.sendMsg）。
+ * <p>
+ * 主要链路：
+ * <ul>
+ *   <li>login —— 鉴权 + 选服 + 写路由</li>
+ *   <li>p2pRoute / groupRoute —— 查路由后 HTTP 推到目标 Server</li>
+ *   <li>offLine —— 清 Redis 登录态与路由</li>
+ * </ul>
  *
  * @author crossoverJie
  * Date: 22/05/2018 14:46
@@ -71,6 +82,13 @@ public class RouteController implements RouteApi {
     private OfflineMsgService offlineMsgService;
 
 
+    /**
+     * 【群聊发送链路】
+     * 入口：本方法 POST /groupRoute
+     * 步骤：1. Redis SCAN 加载全部在线路由 2. 跳过发送者 3. 对每个在线用户 pushMsg → Server /sendMsg → Netty
+     * 中间件：Redis（ROUTE_PREFIX）、HTTP→cim-server、Netty
+     * 失败：某用户 Channel 已断时 Server 侧仅打日志返回；本接口仍返回 SUCCESS（尽力推送）
+     */
     @Operation(summary = "群聊 API")
     @RequestMapping(value = "groupRoute", method = RequestMethod.POST)
     @ResponseBody()
@@ -104,10 +122,12 @@ public class RouteController implements RouteApi {
 
 
     /**
-     * 私聊路由
-     *
-     * @param p2pRequest
-     * @return
+     * 【P2P 发送链路】
+     * 入口：本方法 POST /p2pRoute
+     * 步骤：1. 按 receiveUserId 查 Redis 路由 2. 无路由则存离线并抛 OFF_LINE
+     *       3. 有路由则 pushMsg → 目标 Server HTTP /sendMsg → SessionSocketHolder 取 Channel 写出
+     * 中间件：Redis、OfflineMsgStore、HTTP、Netty
+     * 失败：接收方离线 → 落离线库 + 返回 OFF_LINE；推送时 Channel 为空 → Server 打日志，Route 仍可能 SUCCESS
      */
     @Operation(summary = "私聊 API")
     @RequestMapping(value = "p2pRoute", method = RequestMethod.POST)
@@ -140,6 +160,13 @@ public class RouteController implements RouteApi {
     }
 
 
+    /**
+     * 【下线链路】
+     * 入口：本方法 POST /offLine（Client.close / Server 踢人 / 重连前清理均可调用）
+     * 步骤：1. 查用户缓存 2. accountService.offLine → Redis Lua 删路由 + 登录态
+     * 中间件：Redis（ROUTE_PREFIX、login-status）
+     * 失败：用户信息不存在则跳过清理，仍返回 SUCCESS（幂等友好）
+     */
     @Operation(summary = "客户端下线")
     @RequestMapping(value = "offLine", method = RequestMethod.POST)
     @ResponseBody()
@@ -160,9 +187,13 @@ public class RouteController implements RouteApi {
     }
 
     /**
-     * 获取一台 CIM server
-     *
-     * @return
+     * 【登录选服链路】
+     * 入口：本方法 POST /login
+     * 步骤：1. Redis 校验账号并写登录态 2. MetaStore(ZK) 取可用 Server
+     *       3. RouteHandle 按 userId 选服 4. 可用性探测 5. Redis 写 ROUTE_PREFIX+userId
+     * 中间件：Redis、Zookeeper、RouteHandle（一致性哈希/轮询/随机）
+     * 失败：账号不匹配 / 重复登录 → 直接返回错误码，不选服；
+     *       无可用 Server / 探测失败 → 由 checkServerAvailable / routeHandle 抛异常向上传递
      */
     @Operation(summary = "登录并获取服务器")
     @RequestMapping(value = "login", method = RequestMethod.POST)

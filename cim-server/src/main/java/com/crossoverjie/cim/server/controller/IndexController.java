@@ -16,7 +16,13 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.ResponseBody;
 
 /**
- * Function:
+ * cim-server HTTP 入口（实现 ServerApi），供 Route 推送消息。
+ * <p>
+ * 【消息发送链路】
+ * 入口：POST /sendMsg（Route AccountServiceRedisImpl.pushMsg 经 RpcProxy 调用）
+ * 步骤：本方法 → CIMServer.sendMsg → SessionSocketHolder 取 Channel → Netty 写出 MESSAGE
+ * 中间件：Spring MVC、Netty；@DynamicUrl 指定目标 Server 的 http 地址
+ * 失败：本机无 Channel 时 sendMsg 内部 return，本接口仍返回 SUCCESS（不感知投递失败）。
  *
  * @author crossoverJie
  *         Date: 22/05/2018 14:46
@@ -40,7 +46,7 @@ public class IndexController implements ServerApi {
     @RequestMapping(value = "sendMsg", method = RequestMethod.POST)
     @ResponseBody
     public BaseResponse<SendMsgResVO> sendMsg(@RequestBody SendMsgReqVO sendMsgReqVO, @DynamicUrl String url) {
-        BaseResponse<SendMsgResVO> res = new BaseResponse();
+        BaseResponse<SendMsgResVO> res = new BaseResponse<>();
         cimServer.sendMsg(sendMsgReqVO);
 
         // TODO: 2024/5/30 metrics

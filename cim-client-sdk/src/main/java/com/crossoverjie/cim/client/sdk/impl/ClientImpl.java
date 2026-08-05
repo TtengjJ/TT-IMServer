@@ -44,6 +44,21 @@ import java.util.function.Consumer;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * Client SDK 核心实现：登录选服 → Netty 建连 → 发 LOGIN_REQUEST 绑定会话。
+ * <p>
+ * 【客户端登录选服链路】
+ * 入口：构造函数 → connectServer → doConnectServer
+ * 步骤：
+ *   1. RouteManager.getServer → HTTP /login（Redis 鉴权 + ZK 选服）
+ *   2. Bootstrap.connect(ip, cimPort) 建立长连接
+ *   3. loginServer 发送 Protobuf LOGIN_REQUEST，Server 写入 SessionSocketHolder
+ * 中间件：HTTP(Route)、Netty、Protobuf
+ * 失败：拿不到 Server → fatal；连接/登录异常累计超 loginRetryCount → fatal；
+ *       断线后可由 ReConnectManager 触发 reconnect（先 offLine 再重新选服）。
+ * <p>
+ * 发消息不走 Netty 上行，而走 RouteManager → Route HTTP（见 sendP2P / sendGroup）。
+ */
 @Slf4j
 public class ClientImpl extends ClientState implements Client {
 
@@ -135,9 +150,8 @@ public class ClientImpl extends ClientState implements Client {
     }
 
     /**
-     * 1. User login and get target server
-     * 2. Connect target server
-     * 3. send login cmd to server
+     * 登录选服三步：HTTP 选服 → TCP 连 Server → 发 LOGIN_REQUEST。
+     * 任一步失败：无 Server 则 fatal；异常由 whenComplete / retry 处理。
      */
     private CompletableFuture<Boolean> doConnectServer() {
         CompletableFuture<Boolean> future = new CompletableFuture<>();
@@ -155,9 +169,7 @@ public class ClientImpl extends ClientState implements Client {
     }
 
     /**
-     * Login and get server info
-     *
-     * @return Server info
+     * 步骤1：向 Route 登录并获取目标 CIMServerResVO。
      */
     private Optional<CIMServerResVO> userLogin(CompletableFuture<Boolean> future) {
         LoginReqVO loginReqVO = new LoginReqVO(conf.getAuth().getUserId(),
@@ -176,6 +188,9 @@ public class ClientImpl extends ClientState implements Client {
 
     private final EventLoopGroup group = new NioEventLoopGroup(0, new DefaultThreadFactory("cim-work"));
 
+    /**
+     * 步骤2：Netty 连接 Route 返回的 cimServerPort（数据面，非 HTTP 端口）。
+     */
     private void doConnectServer(CIMServerResVO cimServer, CompletableFuture<Boolean> future) {
         Bootstrap bootstrap = new Bootstrap();
         bootstrap.group(group)
@@ -194,7 +209,7 @@ public class ClientImpl extends ClientState implements Client {
     }
 
     /**
-     * Send login cmd to server
+     * 步骤3：发送 LOGIN_REQUEST，Server 侧绑定 userId↔Channel。
      */
     private void loginServer() {
         Request login = Request.newBuilder()
@@ -209,11 +224,8 @@ public class ClientImpl extends ClientState implements Client {
     }
 
     /**
-     * 1. clear route information.
-     * 2. reconnect.
-     * 3. shutdown reconnect job.
-     * 4. reset reconnect state.
-     * @throws Exception
+     * 【重连链路】清 Route 路由 → backoff → 重新 doConnectServer（再次 /login 选服）。
+     * 失败：达到重试上限或 RECONNECT_FAIL → Event.fatal。
      */
     public void reconnect() throws Exception {
         if (channel != null && channel.isActive()) {
@@ -269,6 +281,10 @@ public class ClientImpl extends ClientState implements Client {
                 });
     }
 
+    /**
+     * 【P2P 发送入口】不走 Netty 上行，经 RouteManager → Route /p2pRoute → 目标 Server 推送。
+     * 失败：10s 超时打日志；对方离线 future 异常（见 RouteManager.sendP2P）。
+     */
     @Override
     public CompletableFuture<Void> sendP2PAsync(P2PReqVO p2PReqVO) {
         CompletableFuture<Void> future = new CompletableFuture<>();
@@ -276,6 +292,9 @@ public class ClientImpl extends ClientState implements Client {
         return routeManager.sendP2P(future, p2PReqVO);
     }
 
+    /**
+     * 【群聊发送入口】RouteManager → Route /groupRoute → 遍历在线用户推送。
+     */
     @Override
     public CompletableFuture<Void> sendGroupAsync(String msg) {
         // TODO: 2024/9/12 return messageId

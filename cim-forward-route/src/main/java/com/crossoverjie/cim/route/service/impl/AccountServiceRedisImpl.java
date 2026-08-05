@@ -36,7 +36,15 @@ import static com.crossoverjie.cim.route.constant.Constant.LOGIN_STATUS_PREFIX;
 import static com.crossoverjie.cim.route.constant.Constant.ROUTE_PREFIX;
 
 /**
- * Function:
+ * 账号 / 路由 / 推送 的 Redis 实现（被 RouteController 调用）。
+ * <p>
+ * Key 约定：
+ * <ul>
+ *   <li>ACCOUNT_PREFIX+userId → userName（账号）</li>
+ *   <li>login-status → 在线用户集合</li>
+ *   <li>ROUTE_PREFIX+userId → "ip:cimPort:httpPort"（消息路由）</li>
+ * </ul>
+ * 中间件：Redis、ServerApi（HTTP 调目标 cim-server）。
  *
  * @author crossoverJie
  * Date: 2018/12/23 21:58
@@ -73,6 +81,11 @@ public class AccountServiceRedisImpl implements AccountService {
         return info;
     }
 
+    /**
+     * 【登录鉴权】入口由 RouteController.login 调用。
+     * 步骤：查账号 → 校验 userName → 写登录态（防重复登录）。
+     * 失败：ACCOUNT_NOT_MATCH / REPEAT_LOGIN，上层不再选服。
+     */
     @Override
     public StatusEnum login(LoginReqVO loginReqVO) throws Exception {
         //再去Redis里查询
@@ -96,12 +109,20 @@ public class AccountServiceRedisImpl implements AccountService {
         return StatusEnum.SUCCESS;
     }
 
+    /**
+     * 【写路由】登录选服成功后调用，后续 P2P/群聊靠此 key 找目标 Server。
+     * 失败：Redis 异常向上抛，登录接口失败。
+     */
     @Override
     public void saveRouteInfo(LoginReqVO loginReqVO, String msg) throws Exception {
         String key = ROUTE_PREFIX + loginReqVO.getUserId();
         redisTemplate.opsForValue().set(key, msg);
     }
 
+    /**
+     * 【群聊路由表】SCAN 所有 ROUTE_PREFIX*，得到 userId → Server 映射。
+     * 失败：连接/SCAN 异常向上抛；无在线用户则返回空 Map（群聊空转）。
+     */
     @Override
     public Map<Long, CIMServerResVO> loadRouteRelated() {
 
@@ -126,6 +147,9 @@ public class AccountServiceRedisImpl implements AccountService {
         return routes;
     }
 
+    /**
+     * 【P2P 查路由】按 receiveUserId 取所在 Server；empty 表示离线。
+     */
     @Override
     public Optional<CIMServerResVO> loadRouteRelatedByUserId(Long userId) {
         String value = redisTemplate.opsForValue().get(ROUTE_PREFIX + userId);
@@ -150,6 +174,13 @@ public class AccountServiceRedisImpl implements AccountService {
     }
 
 
+    /**
+     * 【消息推送链路】Route → Server HTTP /sendMsg → Netty 下发。
+     * 入口：p2pRoute / groupRoute / 离线补发。
+     * 步骤：拼 SendMsgReqVO(cmd=MESSAGE + meta) → ServerApi.sendMsg(url=接收方 Server)。
+     * 中间件：HTTP（RpcProxy/OkHttp）、目标机 SessionSocketHolder。
+     * 失败：发送方用户缓存缺失则跳过推送；目标 Channel 不在由 Server.sendMsg 打日志返回。
+     */
     @Override
     public void pushMsg(CIMServerResVO cimServerResVO, long sendUserId, ChatReqVO chatReqVO) {
         Optional<CIMUserInfo> cimUserInfo = userInfoCacheService.loadUserInfoByUserId(sendUserId);
@@ -168,6 +199,10 @@ public class AccountServiceRedisImpl implements AccountService {
         });
     }
 
+    /**
+     * 【清路由+登录态】Lua 原子删除 ROUTE_PREFIX 与 login-status 中的 userId。
+     * 失败：脚本执行异常向上抛。
+     */
     @Override
     public void offLine(Long userId) {
 

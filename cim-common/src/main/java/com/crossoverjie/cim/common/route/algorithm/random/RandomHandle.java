@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * Function: 路由策略， 随机
+ * 随机选服。列表为空 → SERVER_NOT_AVAILABLE。
  *
  * @Author: jiangyunxiong
  * @Date: 2019/3/7 11:56

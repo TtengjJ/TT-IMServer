@@ -10,7 +10,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * Function:
+ * Server 侧用户下线协调：清本机会话并通知 Route。
+ * <p>
+ * 【下线/踢人链路】入口：CIMServerHandle.channelInactive 或 ServerHeartBeatHandlerImpl 超时
+ * 步骤：removeSession + remove(channel) → HTTP RouteApi.offLine → Redis 清路由
+ * 中间件：SessionSocketHolder、HTTP→Route、Redis
+ * 失败：userInfo 为 null 时只 remove channel；Route 调用失败影响 Redis 状态一致性。
  *
  * @author crossoverJie
  * Date: 2019-01-20 17:20

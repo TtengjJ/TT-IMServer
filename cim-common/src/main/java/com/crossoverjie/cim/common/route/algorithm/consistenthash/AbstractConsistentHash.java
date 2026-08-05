@@ -7,7 +7,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Function:一致性 hash 算法抽象类
+ * 一致性哈希算法抽象：MD5 截断 hash + 环上取最近节点。
+ * <p>
+ * process(values, key)：每次选服重建环（见 issue #79），保证与当前可用列表一致。
  *
  * @author crossoverJie
  * Date: 2019-02-27 00:35

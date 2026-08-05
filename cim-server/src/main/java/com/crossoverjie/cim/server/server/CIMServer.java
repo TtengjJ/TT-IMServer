@@ -20,7 +20,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * Function:
+ * CIM Netty Server：长连接接入与消息下发。
+ * <p>
+ * 【数据面启动】
+ * 入口：@PostConstruct start()
+ * 步骤：Boss/Worker 绑定 cim.server.port → childHandler=CIMServerInitializer
+ * 中间件：Netty NIO、SO_KEEPALIVE
+ * 失败：bind 失败抛 InterruptedException；进程退出 @PreDestroy 优雅关线程组。
+ * <p>
+ * 【消息下发】见 {@link #sendMsg}，由 IndexController HTTP /sendMsg 触发。
  *
  * @author crossoverJie
  *         Date: 21/05/2018 00:30
@@ -75,8 +83,10 @@ public class CIMServer {
 
 
     /**
-     * Push msg to client.
-     * @param sendMsgReqVO message body
+     * 【消息发送链路·最后一跳】Route pushMsg → IndexController.sendMsg → 本方法。
+     * 步骤：SessionSocketHolder.get(userId) → 组装 Protobuf Request → writeAndFlush。
+     * 中间件：本机内存会话表、Netty Channel。
+     * 失败：Channel 为 null（用户已断）→ 打日志直接 return，不抛给 Route（Route 仍可能 SUCCESS）。
      */
     public void sendMsg(SendMsgReqVO sendMsgReqVO) {
         NioSocketChannel socketChannel = SessionSocketHolder.get(sendMsgReqVO.getUserId());

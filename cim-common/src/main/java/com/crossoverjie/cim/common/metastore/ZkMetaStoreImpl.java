@@ -16,6 +16,16 @@ import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.Watcher;
 
 /**
+ * Zookeeper 实现的 MetaStore：IM-Server 注册与发现。
+ * <p>
+ * 【注册发现链路】
+ * 注册入口：RegistryMetaStore.run → addServer（临时节点 /cim/ip:cimPort:httpPort）
+ * 发现入口：RouteController.login → getAvailableServerList（Caffeine 缓存 + ZK children）
+ * 变更：listenServerList 订阅子节点变化 → rebuildCache
+ * 中间件：Zookeeper(ZkClient)、Caffeine 本地缓存
+ * 失败：ZK 不可达 initialize/addServer 抛异常，Server 注册失败或 Route 选服失败；
+ *       缓存为空时回源 ZK，仍空则登录选服列表为空。
+ *
  * @author crossovreJie
  */
 @Slf4j
@@ -32,6 +42,10 @@ public class ZkMetaStoreImpl implements MetaStore {
         client = new ZkClient(configuration.getMetaServiceUri(), configuration.getTimeoutMs());
     }
 
+    /**
+     * 获取可用 Server 列表（优先本地缓存，未命中则读 ZK /cim 子节点）。
+     * 失败：ZK 异常向上抛；无节点返回空集合，后续 routeServer 可能 SERVER_NOT_AVAILABLE。
+     */
     @Override
     public Set<String> getAvailableServerList() throws Exception {
         if (cache.asMap().size() > 0) {
@@ -46,6 +60,10 @@ public class ZkMetaStoreImpl implements MetaStore {
         return voidMap.keySet();
     }
 
+    /**
+     * Server 启动注册：持久化根节点 /cim，再创建临时子节点（进程挂掉自动消失）。
+     * 失败：ZK 写失败抛异常，该 Server 不会进入选服列表。
+     */
     @Override
     public void addServer(String ip, int cimServerPort, int httpPort) throws Exception {
         boolean exists = client.exists(ROOT);
@@ -62,6 +80,9 @@ public class ZkMetaStoreImpl implements MetaStore {
         log.info("Add server to zk [{}]", serverPath);
     }
 
+    /**
+     * Route 侧订阅 Server 列表变更；变更后刷新本地缓存。
+     */
     @Override
     public void listenServerList(ChildListener childListener) throws Exception {
         client.subscribeChildChanges(ROOT, (parentPath, currentChildren) -> {

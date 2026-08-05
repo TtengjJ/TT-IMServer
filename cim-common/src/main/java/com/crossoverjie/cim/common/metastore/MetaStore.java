@@ -4,6 +4,10 @@ import java.util.List;
 import java.util.Set;
 
 /**
+ * 服务注册与发现抽象（ZK 实现见 ZkMetaStoreImpl）。
+ * <p>
+ * 注册：Server 启动写临时节点；发现：Route 登录选服读可用列表并监听变更。
+ *
  * @author crossoverJie
  */
 public interface MetaStore {

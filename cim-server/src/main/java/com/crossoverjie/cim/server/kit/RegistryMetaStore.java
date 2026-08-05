@@ -10,7 +10,12 @@ import org.apache.curator.retry.ExponentialBackoffRetry;
 
 
 /**
- * Function:
+ * Server 启动后向 MetaStore(ZK) 注册本机 ip:cimPort:httpPort。
+ * <p>
+ * 【注册链路】入口：异步 Runnable.run
+ * 步骤：zkSwitch 开启则 initialize ZK → addServer 写临时节点
+ * 中间件：Zookeeper
+ * 失败：zkSwitch=false 跳过注册（单机/测试）；ZK 异常由 @SneakyThrows 抛出。
  *
  * @author crossoverJie
  *         Date: 2018/8/24 01:37

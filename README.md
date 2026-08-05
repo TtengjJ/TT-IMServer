@@ -53,17 +53,6 @@ Using `CIM`, you can achieve the following requirements:
 
 ## TODO LIST
 
-* [x] [Group Chat](#group-chat)
-* [x] [Private Chat](#private-chat)
-* [x] [Built-in Commands](#built-in-commands)
-* [x] [Chat History Query](#chat-history-query)
-* [x] [AI Mode](#ai-mode)
-* [x] Efficient encoding/decoding with `Google Protocol Buffer`
-* [x] Flexible horizontal scaling based on actual needs
-* [x] Server-side automatic removal of offline clients
-* [x] Client automatic reconnection
-* [x] [Delayed Messages](#delayed-messages)
-* [x] SDK development package
 * [ ] Group categorization
 * [ ] Offline messages
 * [ ] Message encryption

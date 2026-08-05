@@ -17,6 +17,13 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import okhttp3.OkHttpClient;
 
+/**
+ * Client 侧访问 Route 的门面（HTTP 控制面）。
+ * <p>
+ * 入口：ClientImpl 登录选服 / 发消息 / 下线。
+ * 中间件：OkHttp + RpcProxyManager 动态代理 RouteApi。
+ * 失败：登录非 SUCCESS 时重连态抛 RECONNECT_FAIL；P2P 对方离线 future 异常完成。
+ */
 public class RouteManager {
 
 
@@ -28,6 +35,10 @@ public class RouteManager {
         this.event = event;
     }
 
+    /**
+     * 【登录选服】POST /login，返回目标 Server 的 ip/cimPort/httpPort。
+     * 失败：业务码非 SUCCESS 时，若正在重连则抛 RECONNECT_FAIL 终止；否则仍可能返回 null dataBody。
+     */
     public CIMServerResVO getServer(LoginReqVO loginReqVO) throws Exception {
         BaseResponse<CIMServerResVO> cimServerResVO = routeApi.login(loginReqVO);
 
@@ -44,6 +55,10 @@ public class RouteManager {
         return cimServerResVO.getDataBody();
     }
 
+    /**
+     * 【P2P 发送】异步调 POST /p2pRoute。
+     * 失败：对方 OFF_LINE 或网络异常 → future.completeExceptionally。
+     */
     public CompletableFuture<Void> sendP2P(CompletableFuture<Void> future, P2PReqVO p2PReqVO) {
         return CompletableFuture.runAsync(() -> {
             try {
@@ -59,6 +74,9 @@ public class RouteManager {
         });
     }
 
+    /**
+     * 【群聊发送】异步调 POST /groupRoute；异常仅打日志（future 仍完成）。
+     */
     public CompletableFuture<Void> sendGroupMsg(ChatReqVO chatReqVO) {
         return CompletableFuture.runAsync(() -> {
             try {
@@ -69,6 +87,9 @@ public class RouteManager {
         });
     }
 
+    /**
+     * 【下线】通知 Route 清 Redis 路由与登录态（close / reconnect 前调用）。
+     */
     public void offLine(Long userId) {
         ChatReqVO vo = new ChatReqVO(userId, "offLine", null);
         routeApi.offLine(vo);

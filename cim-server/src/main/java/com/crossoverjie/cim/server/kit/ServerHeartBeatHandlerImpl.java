@@ -12,7 +12,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
- * Function:
+ * 【心跳超时踢人】
+ * 入口：CIMServerHandle.userEventTriggered(READER_IDLE)
+ * 步骤：比较 now - lastReadTime 与 cim.heartbeat.time；超时则 userOffLine + close
+ * 中间件：Channel 属性上的 lastReadTime、RouteHandler → Route/Redis
+ * 失败：未超时则忽略（仅 11s 读空闲探测）；超时后 Client channelInactive 可触发重连。
  *
  * @author crossoverJie
  * Date: 2019-01-20 17:16

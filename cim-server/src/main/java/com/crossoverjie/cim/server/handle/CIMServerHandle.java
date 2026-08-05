@@ -20,7 +20,14 @@ import io.netty.handler.timeout.IdleStateEvent;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Function:
+ * Server 业务 Handler：登录绑定、心跳、断线/超时下线。
+ * <p>
+ * 【会话绑定】LOGIN_REQUEST → SessionSocketHolder.put(userId, channel)
+ * 【心跳】PING → 更新 lastReadTime 并回写心跳包；写失败关 Channel
+ * 【心跳超时踢人】READER_IDLE → ServerHeartBeatHandlerImpl：超 cim.heartbeat.time 则清会话并通知 Route
+ * 【被动下线】channelInactive → RouteHandler.userOffLine → HTTP /offLine 清 Redis
+ * 中间件：SessionSocketHolder（内存）、Route HTTP、Redis（经 Route）
+ * 失败：对端 reset 可忽略；其它异常打日志不主动关连（避免误伤）。
  *
  * @author crossoverJie
  *         Date: 17/05/2018 18:52
@@ -33,10 +40,8 @@ public class CIMServerHandle extends SimpleChannelInboundHandler<Request> {
 
 
     /**
-     * 取消绑定
-     *
-     * @param ctx
-     * @throws Exception
+     * 【断线清理链路】Channel 失效时：清本机会话 + 通知 Route 删路由。
+     * 失败：userInfo 已为空说明已清理过，跳过（避免重复 offLine）。
      */
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
@@ -53,6 +58,9 @@ public class CIMServerHandle extends SimpleChannelInboundHandler<Request> {
         }
     }
 
+    /**
+     * 【心跳检测入口】IdleStateHandler 读空闲事件 → 交给 ServerHeartBeatHandlerImpl 判定是否超时踢人。
+     */
     @Override
     public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
         if (evt instanceof IdleStateEvent) {
@@ -75,7 +83,7 @@ public class CIMServerHandle extends SimpleChannelInboundHandler<Request> {
         log.info("received msg=[{}]", msg.toString());
 
         if (msg.getCmd() == BaseCommand.LOGIN_REQUEST) {
-            //保存客户端与 Channel 之间的关系
+            // 登录绑定：userId(requestId) ↔ Channel，后续 push 靠此查找
             SessionSocketHolder.put(msg.getRequestId(), (NioSocketChannel) ctx.channel());
             SessionSocketHolder.saveSession(msg.getRequestId(), msg.getReqMsg());
             log.info("client [{}] online success!!", msg.getReqMsg());

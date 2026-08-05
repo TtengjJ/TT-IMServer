@@ -9,7 +9,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Function:
+ * 一致性哈希选服：委托 AbstractConsistentHash（TreeMap / SortArrayMap 等）。
+ * <p>
+ * 入口：RouteController.login → routeServer
+ * 步骤：process 清空环 → 将各 Server hash 入环 → 按 key 顺时针取最近节点
+ * 失败：无节点时由底层 getFirstNodeValue 行为决定；扩缩容时仅影响相邻虚拟区间。
  *
  * @author crossoverJie
  * Date: 2019-02-27 00:33
