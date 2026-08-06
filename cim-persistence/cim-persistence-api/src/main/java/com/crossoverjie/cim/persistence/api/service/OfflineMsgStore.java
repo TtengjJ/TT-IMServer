@@ -1,37 +1,31 @@
 package com.crossoverjie.cim.persistence.api.service;
 
-
 import com.crossoverjie.cim.persistence.api.pojo.OfflineMsg;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
- * @author zhongcanyu
- * @date 2025/5/18
- * @description
+ * P2P 投递 Outbox。可靠投递三态以 MySQL 为准；Redis 仅基本存取/ACK 删除。
  */
 public interface OfflineMsgStore {
 
-    /**
-     * Save offline message
-     *
-     * @param offlineMsg
-     */
     void save(OfflineMsg offlineMsg);
 
-    /**
-     * Fetch offline messages for a user
-     *
-     * @param userId
-     * @return
-     */
     List<OfflineMsg> fetch(Long userId);
 
-    /**
-     * Mark messages as delivered
-     *
-     * @param userId
-     * @param messageIds
-     */
+    @Deprecated
     void markDelivered(Long userId, List<Long> messageIds);
+
+    void markSent(Long userId, List<Long> messageIds);
+
+    void markAcked(Long receiveUserId, Long messageId);
+
+    void prepareRetry(Long messageId);
+
+    void markFailed(Long messageId);
+
+    Optional<OfflineMsg> findByMessageId(Long messageId);
+
+    List<OfflineMsg> listNeedRetry(int maxRetry, int limit);
 }

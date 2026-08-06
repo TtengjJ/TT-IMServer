@@ -12,11 +12,11 @@ spring:
           max-wait: 1000
           min-idle: 10
 
-#  datasource:
-#    driver-class-name: com.mysql.cj.jdbc.Driver
-#    url: jdbc:mysql://localhost:3306/cim-test?useUnicode=true&characterEncoding=utf8&serverTimezone=GMT%2B8
-#    username: root
-#    password: zcyzcy159162
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3307/cim-test?useUnicode=true&characterEncoding=utf8&serverTimezone=GMT%2B8
+    username: root
+    password: root
 
 
 # web port
@@ -65,8 +65,14 @@ mybatis:
 
 offline:
   store:
-    mode: redis
+    mode: mysql
     redis:
       expire:
         message-ttl-days: 3
+
+# P2P 可靠投递；三态重推建议 offline.store.mode=mysql
+cim:
+  delivery:
+    ack-timeout-seconds: 10
+    max-retry: 3
 

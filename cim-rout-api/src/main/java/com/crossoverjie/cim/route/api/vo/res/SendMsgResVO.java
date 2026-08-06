@@ -1,20 +1,45 @@
 package com.crossoverjie.cim.route.api.vo.res;
 
-/**
- * Function:
- *
- * @author crossoverJie
- *         Date: 2017/6/26 15:43
- * @since JDK 1.8
- */
+import lombok.Getter;
+import lombok.Setter;
+
+@Setter
+@Getter
 public class SendMsgResVO {
     private String msg;
+    private Long messageId;
 
-    public String getMsg() {
-        return msg;
+    public SendMsgResVO() {
     }
 
-    public void setMsg(String msg) {
+    public SendMsgResVO(String msg, Long messageId) {
         this.msg = msg;
+        this.messageId = messageId;
+    }
+
+    public static SendMsgResVOBuilder builder() {
+        return new SendMsgResVOBuilder();
+    }
+
+    public static final class SendMsgResVOBuilder {
+        private String msg;
+        private Long messageId;
+
+        private SendMsgResVOBuilder() {
+        }
+
+        public SendMsgResVOBuilder msg(String msg) {
+            this.msg = msg;
+            return this;
+        }
+
+        public SendMsgResVOBuilder messageId(Long messageId) {
+            this.messageId = messageId;
+            return this;
+        }
+
+        public SendMsgResVO build() {
+            return new SendMsgResVO(msg, messageId);
+        }
     }
 }

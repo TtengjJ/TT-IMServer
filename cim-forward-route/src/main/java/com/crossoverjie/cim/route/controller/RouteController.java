@@ -10,13 +10,16 @@ import com.crossoverjie.cim.common.res.NULLBody;
 import com.crossoverjie.cim.common.route.algorithm.RouteHandle;
 import com.crossoverjie.cim.common.util.RouteInfoParseUtil;
 import com.crossoverjie.cim.route.api.RouteApi;
+import com.crossoverjie.cim.route.api.vo.req.AckMsgReqVO;
 import com.crossoverjie.cim.route.api.vo.req.ChatReqVO;
 import com.crossoverjie.cim.route.api.vo.req.LoginReqVO;
 import com.crossoverjie.cim.route.api.vo.req.OfflineMsgReqVO;
 import com.crossoverjie.cim.route.api.vo.req.P2PReqVO;
 import com.crossoverjie.cim.route.api.vo.req.RegisterInfoReqVO;
+import com.crossoverjie.cim.persistence.api.pojo.OfflineMsg;
 import com.crossoverjie.cim.route.api.vo.res.CIMServerResVO;
 import com.crossoverjie.cim.route.api.vo.res.RegisterInfoResVO;
+import com.crossoverjie.cim.route.api.vo.res.SendMsgResVO;
 import com.crossoverjie.cim.route.service.AccountService;
 import com.crossoverjie.cim.route.service.CommonBizService;
 import com.crossoverjie.cim.route.service.OfflineMsgService;
@@ -123,35 +126,47 @@ public class RouteController implements RouteApi {
 
     /**
      * 【P2P 发送链路】
-     * 入口：本方法 POST /p2pRoute
-     * 步骤：1. 按 receiveUserId 查 Redis 路由 2. 无路由则存离线并抛 OFF_LINE
-     *       3. 有路由则 pushMsg → 目标 Server HTTP /sendMsg → SessionSocketHolder 取 Channel 写出
-     * 中间件：Redis、OfflineMsgStore、HTTP、Netty
-     * 失败：接收方离线 → 落离线库 + 返回 OFF_LINE；推送时 Channel 为空 → Server 打日志，Route 仍可能 SUCCESS
+     * 入口：POST /p2pRoute
+     * 步骤：1. 落 Outbox PENDING（在线离线统一）2. 无路由则保持 PENDING 返回 OFF_LINE+messageId
+     *       3. 有路由则 pushMsg（properties 含 messageId）→ afterPushed(SENT+Wheel)
+     * 失败：发送方不存在则 save 返回 null
      */
     @Operation(summary = "私聊 API")
     @RequestMapping(value = "p2pRoute", method = RequestMethod.POST)
     @ResponseBody()
     @Override
-    public BaseResponse<NULLBody> p2pRoute(@RequestBody P2PReqVO p2pRequest) {
-        BaseResponse<NULLBody> res = new BaseResponse();
-
+    public BaseResponse<SendMsgResVO> p2pRoute(@RequestBody P2PReqVO p2pRequest) {
+        BaseResponse<SendMsgResVO> res = new BaseResponse<>();
         try {
-            //获取接收消息用户的路由信息
-            Optional<CIMServerResVO> cimServerResVO = accountService.loadRouteRelatedByUserId(p2pRequest.getReceiveUserId());
+            OfflineMsg offlineMsg = offlineMsgService.saveOfflineMsg(p2pRequest);
+            if (offlineMsg == null) {
+                res.setCode(StatusEnum.FAIL.getCode());
+                res.setMessage("save delivery record failed");
+                return res;
+            }
+            Long messageId = offlineMsg.getMessageId();
+            SendMsgResVO body = SendMsgResVO.builder().messageId(messageId).msg("success").build();
+
+            Optional<CIMServerResVO> cimServerResVO =
+                    accountService.loadRouteRelatedByUserId(p2pRequest.getReceiveUserId());
             if (cimServerResVO.isEmpty()) {
-                log.warn("userId={} not online, save offline msg", p2pRequest.getReceiveUserId());
-                offlineMsgService.saveOfflineMsg(p2pRequest);
-                throw new CIMException(OFF_LINE);
+                log.warn("userId={} not online, keep PENDING messageId={}",
+                        p2pRequest.getReceiveUserId(), messageId);
+                res.setCode(OFF_LINE.getCode());
+                res.setMessage(OFF_LINE.getMessage());
+                res.setDataBody(body);
+                return res;
             }
 
-            //p2pRequest.getReceiveUserId()==>消息接收者的 userID
-            ChatReqVO chatVO = new ChatReqVO(p2pRequest.getReceiveUserId(), p2pRequest.getMsg(), p2pRequest.getBatchMsg());
+            ChatReqVO chatVO = new ChatReqVO(p2pRequest.getReceiveUserId(), p2pRequest.getMsg(),
+                    p2pRequest.getBatchMsg());
+            chatVO.setMessageId(messageId);
             accountService.pushMsg(cimServerResVO.get(), p2pRequest.getUserId(), chatVO);
+            offlineMsgService.afterPushed(p2pRequest.getReceiveUserId(), messageId);
 
             res.setCode(StatusEnum.SUCCESS.getCode());
             res.setMessage(StatusEnum.SUCCESS.getMessage());
-
+            res.setDataBody(body);
         } catch (CIMException e) {
             res.setCode(e.getErrorCode());
             res.setMessage(e.getErrorMessage());
@@ -159,6 +174,21 @@ public class RouteController implements RouteApi {
         return res;
     }
 
+
+    /**
+     * 【ACK】POST /ackMsg → markAcked + Wheel.cancel
+     */
+    @Operation(summary = "消息 ACK")
+    @RequestMapping(value = "ackMsg", method = RequestMethod.POST)
+    @ResponseBody()
+    @Override
+    public BaseResponse<NULLBody> ackMsg(@RequestBody AckMsgReqVO ackMsgReqVO) {
+        BaseResponse<NULLBody> res = new BaseResponse<>();
+        offlineMsgService.ackMsg(ackMsgReqVO.getReceiveUserId(), ackMsgReqVO.getMessageId());
+        res.setCode(StatusEnum.SUCCESS.getCode());
+        res.setMessage(StatusEnum.SUCCESS.getMessage());
+        return res;
+    }
 
     /**
      * 【下线链路】

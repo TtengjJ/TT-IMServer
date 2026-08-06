@@ -21,29 +21,27 @@ import lombok.Setter;
  *         Date: 2018/05/21 15:56
  * @since JDK 1.8
  */
+@Getter
 @Builder
 @AllArgsConstructor
 public class SendMsgReqVO extends BaseRequest {
 
+    @Setter
     @NotNull(message = "msg 不能为空")
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "msg", example = "hello")
     private String msg;
 
-    @Getter
     @Setter
     private List<String> batchMsg;
 
     @NotNull(message = "userId 不能为空")
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "userId", example = "11")
-    @Getter
     private Long userId;
 
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "cmd", example = "message")
-    @Getter
     private BaseCommand cmd;
 
     @Setter
-    @Getter
     private Map<String, String> properties;
 
     public SendMsgReqVO() {
@@ -54,14 +52,6 @@ public class SendMsgReqVO extends BaseRequest {
         this.batchMsg = batchMsg;
         this.userId = userId;
         this.cmd = cmd;
-    }
-
-    public String getMsg() {
-        return msg;
-    }
-
-    public void setMsg(String msg) {
-        this.msg = msg;
     }
 
 

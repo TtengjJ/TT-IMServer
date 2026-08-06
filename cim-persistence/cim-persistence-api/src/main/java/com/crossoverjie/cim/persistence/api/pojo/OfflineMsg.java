@@ -9,9 +9,8 @@ import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * @author zhongcanyu
- * @date 2025/5/18
- * @description
+ * P2P 投递 Outbox 记录（表 offline_msg；在线/离线共用）。
+ * status：0 PENDING / 1 SENT / 2 ACKED / 3 FAILED
  */
 @Data
 @AllArgsConstructor
@@ -21,12 +20,9 @@ public class OfflineMsg {
     private Long messageId;
     private Long receiveUserId;
     private String content;
-    private Integer messageType;   // 0: Text, 1: Image
-    private Integer status;        // 0: Pending, 1: Acked
+    private Integer messageType;
+    private Integer status;
+    private Integer retryCount;
     private LocalDateTime createdAt;
-    /**
-     * 消息来源存储在这里
-     */
     private Map<String, String> properties;
-
 }

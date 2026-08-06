@@ -268,11 +268,11 @@ public class ClientImpl extends ClientState implements Client {
         recordSendLog(sendGroupAsync(msg), "GROUP");
     }
 
-    private void recordSendLog(CompletableFuture<Void> future, String msgWay) {
+    private void recordSendLog(CompletableFuture<?> future, String msgWay) {
         future.orTimeout(10, TimeUnit.SECONDS)
                 .whenComplete((result, throwable) -> {
                     if (throwable == null) {
-                        log.info("{} message task completed successfully", msgWay);
+                        log.info("{} message task completed successfully, result={}", msgWay, result);
                     } else if (throwable instanceof TimeoutException) {
                         log.error("{} message processing timeout", msgWay, throwable);
                     } else {
@@ -282,18 +282,18 @@ public class ClientImpl extends ClientState implements Client {
     }
 
     /**
-     * 【P2P 发送入口】不走 Netty 上行，经 RouteManager → Route /p2pRoute → 目标 Server 推送。
-     * 失败：10s 超时打日志；对方离线 future 异常（见 RouteManager.sendP2P）。
+     * 【P2P 发送入口】RouteManager → /p2pRoute（先落 Outbox 再推）。
+     * 成功返回 messageId；对方离线 future 异常。
      */
     @Override
-    public CompletableFuture<Void> sendP2PAsync(P2PReqVO p2PReqVO) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
+    public CompletableFuture<Long> sendP2PAsync(P2PReqVO p2PReqVO) {
+        CompletableFuture<Long> future = new CompletableFuture<>();
         p2PReqVO.setUserId(this.conf.getAuth().getUserId());
         return routeManager.sendP2P(future, p2PReqVO);
     }
 
     /**
-     * 【群聊发送入口】RouteManager → Route /groupRoute → 遍历在线用户推送。
+     * 【群聊发送入口】本期不做可靠投递。
      */
     @Override
     public CompletableFuture<Void> sendGroupAsync(String msg) {

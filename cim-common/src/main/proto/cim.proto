@@ -5,26 +5,14 @@ option java_multiple_files = true;
 
 // =============================================================================
 // 【协议链路】Client ↔ cim-server 长连接数据面（Netty + Protobuf）
-// 入口：编解码挂在 CIMServerInitializer / CIMClientHandleInitializer
-// 步骤：
-//   1. 帧长度：ProtobufVarint32* 拆包/粘包
-//   2. 反序列化为 Request（上行）或 Response（下行，客户端侧）
-//   3. 业务 Handler 按 BaseCommand 分支处理
-// 中间件：Netty Pipeline、Protobuf
-// 失败：解码失败进 exceptionCaught；未知 cmd 被忽略；写失败可关闭 Channel
-// 说明：控制面（登录选服、P2P/群聊路由）走 HTTP，不走本协议
-// =============================================================================
-
-// 客户端 → 服务端 上行消息；服务端推送时也会构造 Request 写出
 message Request{
-  int64 requestId = 2;              // 通常为 userId（登录、推送目标）
-  string reqMsg = 1;                // 文本载荷：登录时为 userName，聊天为消息体
-  BaseCommand cmd = 3;              // 命令字，决定业务分支
-  map<string, string> properties = 4; // 扩展元数据（发送方/接收方 id、name 等）
-  repeated string batchReqMsg = 5;  // 批量消息体（离线补发等）
+  int64 requestId = 2;
+  string reqMsg = 1;
+  BaseCommand cmd = 3;
+  map<string, string> properties = 4;
+  repeated string batchReqMsg = 5;
 }
 
-// 服务端 → 客户端 下行响应（心跳回包、业务消息回调侧使用）
 message Response{
   int64 responseId = 2;
   string resMsg = 1;
@@ -34,8 +22,9 @@ message Response{
 }
 
 enum BaseCommand{
-  LOGIN_REQUEST = 0; // 登录绑定：Server 写入 SessionSocketHolder(userId↔Channel)
-  MESSAGE = 1;       // 业务消息推送（群聊/私聊/离线补发）
-  PING = 2;          // 心跳：Client 写空闲发送，Server 更新 lastReadTime 并回包
-  OFFLINE = 3;       // 预留：离线相关命令（当前主路径多用 HTTP offLine）
+  LOGIN_REQUEST = 0;
+  MESSAGE = 1;
+  PING = 2;
+  OFFLINE = 3;
+  MESSAGE_ACK = 4; // Client ACK; properties.messageId
 }

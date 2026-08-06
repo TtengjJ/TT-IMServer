@@ -20,7 +20,8 @@ public interface Client extends Closeable {
         sendP2PAsync(p2PReqVO).get();
     }
 
-    CompletableFuture<Void> sendP2PAsync(P2PReqVO p2PReqVO);
+    /** @return future of Outbox messageId；对方离线时 exceptionally(OFF_LINE) */
+    CompletableFuture<Long> sendP2PAsync(P2PReqVO p2PReqVO);
 
     default void sendGroup(String msg) throws Exception {
         sendGroupAsync(msg).get();
@@ -35,5 +36,4 @@ public interface Client extends Closeable {
     Set<CIMUserInfo> getOnlineUser() throws Exception;
 
     Optional<CIMServerResVO> getServerInfo();
-
 }
