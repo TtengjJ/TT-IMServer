@@ -7,6 +7,7 @@ import com.crossoverjie.cim.persistence.api.service.OfflineMsgStore;
 import com.crossoverjie.cim.route.api.vo.req.ChatReqVO;
 import com.crossoverjie.cim.route.api.vo.res.CIMServerResVO;
 import com.crossoverjie.cim.route.config.DeliveryProperties;
+import com.crossoverjie.cim.route.metric.CimRouteMetrics;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
@@ -18,8 +19,17 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * P2P 超时重推：RingBufferWheel。
- * 入口 scheduleAfterSent / cancel / reloadPendingTasks。
+ * P2P 超时重推：RingBufferWheel + 重推指标。
+ * <p>
+ * 【调度 cim.route.delivery.retry{scheduled}】
+ * 入口：afterPushed / fetchOfflineMsgs / doRetry 再次登记 → scheduleAfterSent
+ * 步骤：cancel 旧任务 → Wheel.addTask(ack-timeout) → retry{scheduled} +1
+ * <p>
+ * 【执行 cim.route.delivery.retry{executed}】
+ * 入口：时间轮到期触发 RetryTask.run
+ * 步骤：retry{executed} +1 → doRetry（查库/重推/再 schedule）
+ * <p>
+ * 【取消】ACK 成功 → cancel，不再 executed。
  */
 @Slf4j
 @Component
@@ -31,6 +41,8 @@ public class DeliveryRetryManager {
     private AccountService accountService;
     @Resource
     private DeliveryProperties deliveryProperties;
+    @Resource
+    private CimRouteMetrics cimRouteMetrics;
 
     private RingBufferWheel ringBufferWheel;
     private final ConcurrentHashMap<Long, Integer> messageTaskIds = new ConcurrentHashMap<>();
@@ -48,6 +60,9 @@ public class DeliveryRetryManager {
         }
     }
 
+    /**
+     * 登记 ACK 超时重推任务，并计 scheduled。
+     */
     public void scheduleAfterSent(Long messageId) {
         if (messageId == null) {
             return;
@@ -57,6 +72,7 @@ public class DeliveryRetryManager {
         task.setKey(deliveryProperties.getAckTimeoutSeconds());
         int taskId = ringBufferWheel.addTask(task);
         messageTaskIds.put(messageId, taskId);
+        cimRouteMetrics.retryScheduled();
         log.info("Scheduled delivery retry messageId={}, taskId={}, delay={}s",
                 messageId, taskId, deliveryProperties.getAckTimeoutSeconds());
     }
@@ -129,6 +145,8 @@ public class DeliveryRetryManager {
 
         @Override
         public void run() {
+            // 任务真正跑起来即计 executed（无论后续是否因已 ACKED 提前 return）
+            cimRouteMetrics.retryExecuted();
             try {
                 doRetry(messageId);
             } catch (Exception e) {

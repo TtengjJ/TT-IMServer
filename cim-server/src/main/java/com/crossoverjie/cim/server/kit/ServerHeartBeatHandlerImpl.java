@@ -4,6 +4,7 @@ import com.crossoverjie.cim.common.kit.HeartBeatHandler;
 import com.crossoverjie.cim.common.pojo.CIMUserInfo;
 import com.crossoverjie.cim.common.util.NettyAttrUtil;
 import com.crossoverjie.cim.server.config.AppConfiguration;
+import com.crossoverjie.cim.server.metric.CimServerMetrics;
 import com.crossoverjie.cim.server.util.SessionSocketHolder;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.socket.nio.NioSocketChannel;
@@ -12,11 +13,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
- * 【心跳超时踢人】
+ * 【心跳超时踢人 + 踢人指标】
  * 入口：CIMServerHandle.userEventTriggered(READER_IDLE)
- * 步骤：比较 now - lastReadTime 与 cim.heartbeat.time；超时则 userOffLine + close
- * 中间件：Channel 属性上的 lastReadTime、RouteHandler → Route/Redis
- * 失败：未超时则忽略（仅 11s 读空闲探测）；超时后 Client channelInactive 可触发重连。
+ * 步骤：比较 now - lastReadTime 与 cim.heartbeat.time；
+ *       超时则 cim.server.heartbeat.kick +1 → userOffLine + close
+ * 中间件：Channel 属性 lastReadTime、RouteHandler → Route/Redis、CimServerMetrics
+ * 失败：未超时则忽略（仅读空闲探测，不计数）；超时后 Client channelInactive 可触发重连。
  *
  * @author crossoverJie
  * Date: 2019-01-20 17:16
@@ -33,6 +35,9 @@ public class ServerHeartBeatHandlerImpl implements HeartBeatHandler {
     @Autowired
     private AppConfiguration appConfiguration;
 
+    @Autowired
+    private CimServerMetrics cimServerMetrics;
+
     @Override
     public void process(ChannelHandlerContext ctx) throws Exception {
 
@@ -45,6 +50,7 @@ public class ServerHeartBeatHandlerImpl implements HeartBeatHandler {
             if (userInfo != null) {
                 log.warn("客户端[{}]心跳超时[{}]ms，需要关闭连接!", userInfo.getUserName(), now - lastReadTime);
             }
+            cimServerMetrics.heartbeatKick();
             routeHandler.userOffLine(userInfo, (NioSocketChannel) ctx.channel());
             ctx.channel().close();
         }

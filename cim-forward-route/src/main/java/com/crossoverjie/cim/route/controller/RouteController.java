@@ -20,11 +20,13 @@ import com.crossoverjie.cim.persistence.api.pojo.OfflineMsg;
 import com.crossoverjie.cim.route.api.vo.res.CIMServerResVO;
 import com.crossoverjie.cim.route.api.vo.res.RegisterInfoResVO;
 import com.crossoverjie.cim.route.api.vo.res.SendMsgResVO;
+import com.crossoverjie.cim.route.metric.CimRouteMetrics;
 import com.crossoverjie.cim.route.service.AccountService;
 import com.crossoverjie.cim.route.service.CommonBizService;
 import com.crossoverjie.cim.route.service.OfflineMsgService;
 import com.crossoverjie.cim.route.service.UserInfoCacheService;
 import com.crossoverjie.cim.server.api.ServerApi;
+import io.micrometer.core.instrument.Timer;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.annotation.Resource;
 import java.util.List;
@@ -83,6 +85,9 @@ public class RouteController implements RouteApi {
 
     @Resource
     private OfflineMsgService offlineMsgService;
+
+    @Resource
+    private CimRouteMetrics cimRouteMetrics;
 
 
     /**
@@ -176,7 +181,8 @@ public class RouteController implements RouteApi {
 
 
     /**
-     * 【ACK】POST /ackMsg → markAcked + Wheel.cancel
+     * 【ACK】POST /ackMsg → OfflineMsgService.ackMsg（含 cim.route.delivery.ack）
+     * 上游：Client MESSAGE_ACK → CIMServerHandle → HTTP 本接口
      */
     @Operation(summary = "消息 ACK")
     @RequestMapping(value = "ackMsg", method = RequestMethod.POST)
@@ -217,45 +223,52 @@ public class RouteController implements RouteApi {
     }
 
     /**
-     * 【登录选服链路】
+     * 【登录选服链路 + 登录耗时指标】
      * 入口：本方法 POST /login
-     * 步骤：1. Redis 校验账号并写登录态 2. MetaStore(ZK) 取可用 Server
-     *       3. RouteHandle 按 userId 选服 4. 可用性探测 5. Redis 写 ROUTE_PREFIX+userId
-     * 中间件：Redis、Zookeeper、RouteHandle（一致性哈希/轮询/随机）
-     * 失败：账号不匹配 / 重复登录 → 直接返回错误码，不选服；
-     *       无可用 Server / 探测失败 → 由 checkServerAvailable / routeHandle 抛异常向上传递
+     * 步骤：Timer.Sample.start → 1. Redis 鉴权写登录态 2. ZK 取可用 Server
+     *       3. RouteHandle 选服 4. 可用性探测 5. Redis 写路由 → finally stop
+     *       tag：整段成功 result=success；鉴权失败/异常等 result=fail（cim.route.login）
+     * 中间件：Redis、Zookeeper、RouteHandle、CimRouteMetrics（HTTP 线程打点，不进 EventLoop）
+     * 失败：账号不匹配 / 重复登录 → 返回错误码且 fail 计时；选服异常向上抛且 fail 计时
      */
     @Operation(summary = "登录并获取服务器")
     @RequestMapping(value = "login", method = RequestMethod.POST)
     @ResponseBody()
     @Override
     public BaseResponse<CIMServerResVO> login(@RequestBody LoginReqVO loginReqVO) throws Exception {
-        BaseResponse<CIMServerResVO> res = new BaseResponse();
-        //登录校验
-        StatusEnum status = accountService.login(loginReqVO);
-        res.setCode(status.getCode());
-        res.setMessage(status.getMessage());
-        if (status != StatusEnum.SUCCESS) {
+        Timer.Sample sample = cimRouteMetrics.startLogin();
+        boolean success = false;
+        try {
+            BaseResponse<CIMServerResVO> res = new BaseResponse<>();
+            //登录校验
+            StatusEnum status = accountService.login(loginReqVO);
+            res.setCode(status.getCode());
+            res.setMessage(status.getMessage());
+            if (status != StatusEnum.SUCCESS) {
+                return res;
+            }
+
+            // check server available
+            Set<String> availableServerList = metaStore.getAvailableServerList();
+            String key = String.valueOf(loginReqVO.getUserId());
+            String server =
+                    routeHandle.routeServer(List.copyOf(availableServerList), key);
+            log.info("userInfo=[{}] route server info=[{}]", loginReqVO, server);
+
+            RouteInfo routeInfo = RouteInfoParseUtil.parse(server);
+            routeInfo = commonBizService.checkServerAvailable(routeInfo, key);
+
+            //保存路由信息
+            accountService.saveRouteInfo(loginReqVO, server);
+
+            CIMServerResVO vo =
+                    new CIMServerResVO(routeInfo.getIp(), routeInfo.getCimServerPort(), routeInfo.getHttpPort());
+            res.setDataBody(vo);
+            success = true;
             return res;
+        } finally {
+            cimRouteMetrics.stopLogin(sample, success);
         }
-
-        // check server available
-        Set<String> availableServerList = metaStore.getAvailableServerList();
-        String key = String.valueOf(loginReqVO.getUserId());
-        String server =
-                routeHandle.routeServer(List.copyOf(availableServerList), key);
-        log.info("userInfo=[{}] route server info=[{}]", loginReqVO, server);
-
-        RouteInfo routeInfo = RouteInfoParseUtil.parse(server);
-        routeInfo = commonBizService.checkServerAvailable(routeInfo, key);
-
-        //保存路由信息
-        accountService.saveRouteInfo(loginReqVO, server);
-
-        CIMServerResVO vo =
-                new CIMServerResVO(routeInfo.getIp(), routeInfo.getCimServerPort(), routeInfo.getHttpPort());
-        res.setDataBody(vo);
-        return res;
     }
 
     /**

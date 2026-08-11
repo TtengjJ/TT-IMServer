@@ -9,6 +9,7 @@ import com.crossoverjie.cim.persistence.api.vo.req.SaveOfflineMsgReqVO;
 import com.crossoverjie.cim.route.api.vo.req.P2PReqVO;
 import com.crossoverjie.cim.route.api.vo.res.CIMServerResVO;
 import com.crossoverjie.cim.route.factory.OfflineMsgFactory;
+import com.crossoverjie.cim.route.metric.CimRouteMetrics;
 import com.crossoverjie.cim.route.service.DeliveryRetryManager;
 import com.crossoverjie.cim.route.service.OfflineMsgService;
 import com.crossoverjie.cim.route.service.UserInfoCacheService;
@@ -28,7 +29,7 @@ import org.springframework.stereotype.Service;
  * <p>
  * 【离线拉取】逐条 push（带 messageId）→ SENT + Wheel；禁止推完即 ACKED。
  * 【落库】Snowflake id + PENDING。
- * 【ACK】markAcked + cancel Wheel。
+ * 【ACK + 指标】markAcked + cancel Wheel → cim.route.delivery.ack +1（CimRouteMetrics）。
  */
 @Slf4j
 @Service
@@ -44,6 +45,8 @@ public class OfflineMsgServiceImpl implements OfflineMsgService {
     private ServerApi serverApi;
     @Resource
     private DeliveryRetryManager deliveryRetryManager;
+    @Resource
+    private CimRouteMetrics cimRouteMetrics;
 
     @Override
     public void fetchOfflineMsgs(CIMServerResVO cimServerResVO, Long receiveUserId) {
@@ -95,10 +98,16 @@ public class OfflineMsgServiceImpl implements OfflineMsgService {
         return offlineMsg;
     }
 
+    /**
+     * 【ACK 确认链路 + ack 指标】
+     * 入口：Client MESSAGE_ACK → CIMServerHandle → RouteApi.ackMsg → 本方法
+     * 步骤：markAcked → Wheel.cancel → cim.route.delivery.ack +1
+     */
     @Override
     public void ackMsg(Long receiveUserId, Long messageId) {
         offlineMsgStore.markAcked(receiveUserId, messageId);
         deliveryRetryManager.cancel(messageId);
+        cimRouteMetrics.deliveryAck();
         log.info("ACKED messageId={}, receiveUserId={}", messageId, receiveUserId);
     }
 

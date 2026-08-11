@@ -54,6 +54,15 @@ public class SessionSocketHolder {
     }
 
     /**
+     * 【可观测性·在线数】供 Micrometer Gauge cim.server.connections 回调。
+     * 调用链：MetricsConfig 注册 Gauge → Actuator scrape → 本方法读 CHANNEL_MAP.size()。
+     * 写入侧：LOGIN_REQUEST put / 下线 remove，无需在此手动 ±1。
+     */
+    public static int onlineCount() {
+        return CHANNEL_MAP.size();
+    }
+
+    /**
      * 按 Channel 反查并移除绑定（下线清理）。
      */
     public static void remove(NioSocketChannel nioSocketChannel) {

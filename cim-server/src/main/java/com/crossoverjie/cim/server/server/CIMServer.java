@@ -3,6 +3,7 @@ package com.crossoverjie.cim.server.server;
 import com.crossoverjie.cim.common.protocol.Request;
 import com.crossoverjie.cim.server.api.vo.req.SendMsgReqVO;
 import com.crossoverjie.cim.server.init.CIMServerInitializer;
+import com.crossoverjie.cim.server.metric.CimServerMetrics;
 import com.crossoverjie.cim.server.util.SessionSocketHolder;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
@@ -14,6 +15,7 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import jakarta.annotation.Resource;
 import java.net.InetSocketAddress;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,6 +47,9 @@ public class CIMServer {
 
     @Value("${cim.server.port}")
     private int nettyPort;
+
+    @Resource
+    private CimServerMetrics cimServerMetrics;
 
 
     /**
@@ -83,16 +88,19 @@ public class CIMServer {
 
 
     /**
-     * 【消息发送链路·最后一跳】Route pushMsg → IndexController.sendMsg → 本方法。
-     * 步骤：SessionSocketHolder.get(userId) → 组装 Protobuf Request → writeAndFlush。
-     * 中间件：本机内存会话表、Netty Channel。
-     * 失败：Channel 为 null（用户已断）→ 打日志直接 return，不抛给 Route（Route 仍可能 SUCCESS）。
+     * 【消息发送链路·最后一跳 + 推送指标】
+     * 入口：Route pushMsg → IndexController.sendMsg → 本方法。
+     * 步骤：SessionSocketHolder.get(userId) → 组装 Protobuf Request → writeAndFlush；
+     *       Channel==null → cim.server.push{offline}；写出发起 → cim.server.push{success}。
+     * 中间件：本机内存会话表、Netty Channel、CimServerMetrics。
+     * 失败：Channel 为 null（用户已断）→ 打日志+offline 计数后 return，不抛给 Route。
      */
     public void sendMsg(SendMsgReqVO sendMsgReqVO) {
         NioSocketChannel socketChannel = SessionSocketHolder.get(sendMsgReqVO.getUserId());
 
         if (null == socketChannel) {
             log.error("client {} offline!", sendMsgReqVO.getUserId());
+            cimServerMetrics.pushOffline();
             return;
         }
 
@@ -111,6 +119,7 @@ public class CIMServer {
         Request protocol = requestBuilder.build();
 
         ChannelFuture future = socketChannel.writeAndFlush(protocol);
+        cimServerMetrics.pushSuccess();
         future.addListener((ChannelFutureListener) channelFuture ->
                 log.info("server push {} msg:[{}], socketChannel:{}", isBatch ? "batch" : "single", sendMsgReqVO, socketChannel));
     }
