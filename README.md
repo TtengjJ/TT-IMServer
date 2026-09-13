@@ -1,11 +1,9 @@
 <div align="center">
 
-<img src="https://i.loli.net/2020/02/21/rfOGvKlTcHCmM92.png"  />
 <br/>
 
 [![codecov](https://codecov.io/gh/crossoverJie/cim/graph/badge.svg?token=oW5Gd1oKmf)](https://codecov.io/gh/crossoverJie/cim)
 [![Build Status](https://img.shields.io/badge/cim-cross--im-brightgreen.svg)](https://github.com/crossoverJie/cim)
-[![](https://badge.juejin.im/entry/5c2c000e6fb9a049f5713e26/likes.svg?style=flat-square)](https://juejin.im/post/5c2bffdc51882509181395d7)
 
 📘[介绍](#介绍) | 🏖[TODO LIST](#todo-list) | 🌈[系统架构](#系统架构) |💡[流程图](#流程图)|🌁[快速启动](#快速启动)|👨🏻‍✈️[内置命令](#客户端内置命令)|🎤[通信](#群聊私聊)|❓[QA](https://github.com/crossoverJie/cim/blob/master/doc/QA.md)|💌[联系作者](#联系作者)
 
@@ -158,8 +156,6 @@ cd /xx/work/route0/
 java -jar cim-client-1.0.0-SNAPSHOT.jar --server.port=8084 --cim.user.id=唯一客户端ID --cim.user.userName=用户名 --cim.route.url=http://路由服务器:8083/
 ```
 
-![](https://ws2.sinaimg.cn/large/006tNbRwly1fylgxjgshfj31vo04m7p9.jpg)
-![](https://ws1.sinaimg.cn/large/006tNbRwly1fylgxu0x4uj31hy04q75z.jpg)
 
 如上图，启动两个客户端可以互相通信即可。
 
