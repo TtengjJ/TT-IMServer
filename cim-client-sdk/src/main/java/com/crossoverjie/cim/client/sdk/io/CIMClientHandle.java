@@ -13,6 +13,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
@@ -20,7 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Client Netty Handler。
  * <p>
- * 【可靠投递接收】非 PING：解析 messageId → Deduper → 重复仍 ACK 不回调；新消息 → Listener → MESSAGE_ACK。
+ * 【可靠投递接收】非 PING：Dispatcher 规划 → 合法批量按下标去重并按条 ACK；非法批量整包丢弃。
  */
 @ChannelHandler.Sharable
 @Slf4j
@@ -85,39 +86,29 @@ public class CIMClientHandle extends SimpleChannelInboundHandler<Response> {
             MessageIdDeduper deduper = deduperByUser.computeIfAbsent(
                     client.getAuth().getUserId(), id -> new MessageIdDeduper());
 
-            if (msg.getBatchResMsgCount() > 0) {
-                for (int i = 0; i < msg.getBatchResMsgCount(); i++) {
-                    messageListener.received(client, msg.getPropertiesMap(), msg.getBatchResMsg(i));
+            ReliableDeliveryDispatcher.DispatchPlan plan = ReliableDeliveryDispatcher.plan(msg, deduper);
+            if (plan.isInvalid()) {
+                log.error("Invalid batch packet: bodyCount={}, idCount={}, skip callback and ack",
+                        msg.getBatchResMsgCount(), msg.getBatchMessageIdCount());
+                return;
+            }
+
+            for (ReliableDeliveryDispatcher.DispatchItem item : plan.getItems()) {
+                if (item.shouldCallback()) {
+                    Map<String, String> props = new HashMap<>(msg.getPropertiesMap());
+                    if (item.getMessageId() != null) {
+                        props.put(Constants.MetaKey.MESSAGE_ID, String.valueOf(item.getMessageId()));
+                    }
+                    messageListener.received(client, props, item.getBody());
+                } else if (item.isDuplicate()) {
+                    log.info("Duplicate messageId={}, skip business callback", item.getMessageId());
                 }
-                String messageIdStr = msg.getPropertiesMap().get(Constants.MetaKey.MESSAGE_ID);
-                if (messageIdStr != null) {
-                    sendAck(ctx, client.getAuth().getUserId(), messageIdStr);
-                }
-            } else {
-                String messageIdStr = msg.getPropertiesMap().get(Constants.MetaKey.MESSAGE_ID);
-                Long messageId = parseMessageId(messageIdStr);
-                boolean duplicate = messageId != null && deduper.checkAndRemember(messageId);
-                if (!duplicate) {
-                    messageListener.received(client, msg.getPropertiesMap(), msg.getResMsg());
-                } else {
-                    log.info("Duplicate messageId={}, skip business callback", messageId);
-                }
-                if (messageIdStr != null) {
-                    sendAck(ctx, client.getAuth().getUserId(), messageIdStr);
+                // 按条确认；一次确认多个编号本任务不做
+                if (item.shouldAck() && item.getAckMessageId() != null) {
+                    sendAck(ctx, client.getAuth().getUserId(), item.getAckMessageId());
                 }
             }
         });
-    }
-
-    private static Long parseMessageId(String messageIdStr) {
-        if (messageIdStr == null || messageIdStr.isEmpty()) {
-            return null;
-        }
-        try {
-            return Long.valueOf(messageIdStr);
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 
     private void sendAck(ChannelHandlerContext ctx, Long userId, String messageIdStr) {

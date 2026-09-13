@@ -25,9 +25,9 @@ import org.springframework.stereotype.Component;
  * 入口：afterPushed / fetchOfflineMsgs / doRetry 再次登记 → scheduleAfterSent
  * 步骤：cancel 旧任务 → Wheel.addTask(ack-timeout) → retry{scheduled} +1
  * <p>
- * 【执行 cim.route.delivery.retry{executed}】
- * 入口：时间轮到期触发 RetryTask.run
- * 步骤：retry{executed} +1 → doRetry（查库/重推/再 schedule）
+     * 【执行 cim.route.delivery.retry{executed}】
+     * 入口：时间轮到期触发 RetryTask.run
+     * 步骤：retry{executed} +1 → doRetry（按单个 messageId 查库/重推/再 schedule，禁止整包重推）
  * <p>
  * 【取消】ACK 成功 → cancel，不再 executed。
  */
@@ -104,6 +104,7 @@ public class DeliveryRetryManager {
     }
 
     private void doRetry(Long messageId) {
+        // 超时只重推未确认的单条：按 messageId 查库再推，不为整批建一个时间轮任务。
         messageTaskIds.remove(messageId);
         Optional<OfflineMsg> optional = offlineMsgStore.findByMessageId(messageId);
         if (optional.isEmpty()) {

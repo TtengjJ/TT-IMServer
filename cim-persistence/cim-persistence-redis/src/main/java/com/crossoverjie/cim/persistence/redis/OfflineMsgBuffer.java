@@ -53,8 +53,14 @@ public class OfflineMsgBuffer implements OfflineMsgStore {
 
     @Override
     public List<OfflineMsg> fetch(Long userId) {
+        return fetch(userId, FETCH_OFFLINE_MSG_SIZE);
+    }
+
+    @Override
+    public List<OfflineMsg> fetch(Long userId, int limit) {
         try {
-            List<String> jsonResult = scriptExecutor.fetchOfflineMsgs(userId, FETCH_OFFLINE_MSG_SIZE);
+            int size = limit > 0 ? limit : FETCH_OFFLINE_MSG_SIZE;
+            List<String> jsonResult = scriptExecutor.fetchOfflineMsgs(userId, size);
             return jsonResult.stream().map(json -> {
                 try {
                     return objectMapper.readValue(json, OfflineMsg.class);

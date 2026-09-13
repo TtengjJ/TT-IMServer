@@ -34,6 +34,13 @@ public class SendMsgReqVO extends BaseRequest {
     @Setter
     private List<String> batchMsg;
 
+    /**
+     * 与 {@link #batchMsg} 按下标对齐的消息编号列表。
+     * 两者均非空且等长时走可靠投递批量协议；不要用 properties.messageId 表示整包。
+     */
+    @Setter
+    private List<Long> batchMessageIds;
+
     @NotNull(message = "userId 不能为空")
     @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "userId", example = "11")
     private Long userId;
@@ -60,6 +67,7 @@ public class SendMsgReqVO extends BaseRequest {
         return "SendMsgReqVO{" +
                 "msg='" + msg + '\'' +
                 ", batchMsg=" + batchMsg +
+                ", batchMessageIds=" + batchMessageIds +
                 ", userId=" + userId +
                 ", cmd=" + cmd +
                 ", properties=" + properties +

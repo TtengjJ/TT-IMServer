@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.ResponseBody;
  * 步骤：本方法 → CIMServer.sendMsg → SessionSocketHolder 取 Channel → Netty 写出 MESSAGE
  *       （推送成功/离线计数在 CIMServer.sendMsg → CimServerMetrics，本层不再打点）
  * 中间件：Spring MVC、Netty；@DynamicUrl 指定目标 Server 的 http 地址
- * 失败：本机无 Channel 时 sendMsg 内部 return+offline 计数，本接口仍返回 SUCCESS。
+ * 失败：本机无 Channel 时返回 OFF_LINE（pushed=false），Route 离线补发据此不 markSent。
  *
  * @author crossoverJie
  *         Date: 22/05/2018 14:46
@@ -48,12 +48,18 @@ public class IndexController implements ServerApi {
     @ResponseBody
     public BaseResponse<SendMsgResVO> sendMsg(@RequestBody SendMsgReqVO sendMsgReqVO, @DynamicUrl String url) {
         BaseResponse<SendMsgResVO> res = new BaseResponse<>();
-        cimServer.sendMsg(sendMsgReqVO);
+        boolean pushed = cimServer.sendMsg(sendMsgReqVO);
 
         SendMsgResVO sendMsgResVO = new SendMsgResVO();
         sendMsgResVO.setMsg("OK");
-        res.setCode(StatusEnum.SUCCESS.getCode());
-        res.setMessage(StatusEnum.SUCCESS.getMessage());
+        sendMsgResVO.setPushed(pushed);
+        if (pushed) {
+            res.setCode(StatusEnum.SUCCESS.getCode());
+            res.setMessage(StatusEnum.SUCCESS.getMessage());
+        } else {
+            res.setCode(StatusEnum.OFF_LINE.getCode());
+            res.setMessage(StatusEnum.OFF_LINE.getMessage());
+        }
         res.setDataBody(sendMsgResVO);
         return res;
     }

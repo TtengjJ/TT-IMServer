@@ -2,7 +2,9 @@ package com.crossoverjie.cim.common.util;
 
 import com.crossoverjie.cim.common.protocol.BaseCommand;
 import com.crossoverjie.cim.common.protocol.Request;
+import com.crossoverjie.cim.common.protocol.Response;
 import com.google.protobuf.InvalidProtocolBufferException;
+import org.junit.Assert;
 import org.junit.Test;
 
 public class ProtocolTest {
@@ -40,6 +42,26 @@ public class ProtocolTest {
      */
     public static Request decode(byte[] bytes) throws InvalidProtocolBufferException {
         return Request.parseFrom(bytes);
+    }
+
+    @Test
+    public void batchMessageIdAlignsWhenDecodedAsResponse() throws InvalidProtocolBufferException {
+        Request request = Request.newBuilder()
+                .setRequestId(100L)
+                .setCmd(BaseCommand.OFFLINE)
+                .addBatchReqMsg("a")
+                .addBatchReqMsg("b")
+                .addBatchMessageId(11L)
+                .addBatchMessageId(12L)
+                .build();
+
+        Response response = Response.parseFrom(request.toByteArray());
+        Assert.assertEquals(2, response.getBatchResMsgCount());
+        Assert.assertEquals(2, response.getBatchMessageIdCount());
+        Assert.assertEquals("a", response.getBatchResMsg(0));
+        Assert.assertEquals(11L, response.getBatchMessageId(0));
+        Assert.assertEquals("b", response.getBatchResMsg(1));
+        Assert.assertEquals(12L, response.getBatchMessageId(1));
     }
 }
 

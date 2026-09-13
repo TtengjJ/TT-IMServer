@@ -34,7 +34,13 @@ public class OfflineMsgDb implements OfflineMsgStore {
 
     @Override
     public List<OfflineMsg> fetch(Long receiveUserId) {
-        return offlineMsgMapper.fetchOfflineMsgsWithCursor(receiveUserId, FETCH_OFFLINE_MSG_LIMIT);
+        return fetch(receiveUserId, FETCH_OFFLINE_MSG_LIMIT);
+    }
+
+    @Override
+    public List<OfflineMsg> fetch(Long receiveUserId, int limit) {
+        int size = limit > 0 ? limit : FETCH_OFFLINE_MSG_LIMIT;
+        return offlineMsgMapper.fetchOfflineMsgsWithCursor(receiveUserId, size);
     }
 
     @Override

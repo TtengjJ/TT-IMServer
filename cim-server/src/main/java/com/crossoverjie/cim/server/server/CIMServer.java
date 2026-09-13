@@ -17,6 +17,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import java.net.InetSocketAddress;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -93,24 +94,32 @@ public class CIMServer {
      * 步骤：SessionSocketHolder.get(userId) → 组装 Protobuf Request → writeAndFlush；
      *       Channel==null → cim.server.push{offline}；写出发起 → cim.server.push{success}。
      * 中间件：本机内存会话表、Netty Channel、CimServerMetrics。
-     * 失败：Channel 为 null（用户已断）→ 打日志+offline 计数后 return，不抛给 Route。
+     * 失败：Channel 为 null（用户已断）→ 打日志+offline 计数后 return false，不抛给 Route。
+     *
+     * @return true 已对 Channel 发起写出；false 本机无连接，调用方不应 markSent
      */
-    public void sendMsg(SendMsgReqVO sendMsgReqVO) {
+    public boolean sendMsg(SendMsgReqVO sendMsgReqVO) {
         NioSocketChannel socketChannel = SessionSocketHolder.get(sendMsgReqVO.getUserId());
 
         if (null == socketChannel) {
             log.error("client {} offline!", sendMsgReqVO.getUserId());
             cimServerMetrics.pushOffline();
-            return;
+            return false;
         }
 
         Request.Builder requestBuilder = Request.newBuilder()
                 .setRequestId(sendMsgReqVO.getUserId())
-                .putAllProperties(sendMsgReqVO.getProperties())
                 .setCmd(sendMsgReqVO.getCmd());
+        if (sendMsgReqVO.getProperties() != null) {
+            requestBuilder.putAllProperties(sendMsgReqVO.getProperties());
+        }
 
-        boolean isBatch = sendMsgReqVO.getBatchMsg() != null && sendMsgReqVO.getBatchMsg().size() > 0;
-        if (isBatch) {
+        // 批量可靠投递：正文列表与编号列表均非空且等长才写入 batchMessageId
+        boolean alignedBatch = isAlignedBatch(sendMsgReqVO);
+        if (alignedBatch) {
+            requestBuilder.addAllBatchReqMsg(sendMsgReqVO.getBatchMsg());
+            requestBuilder.addAllBatchMessageId(sendMsgReqVO.getBatchMessageIds());
+        } else if (sendMsgReqVO.getBatchMsg() != null && sendMsgReqVO.getBatchMsg().size() > 0) {
             requestBuilder.addAllBatchReqMsg(sendMsgReqVO.getBatchMsg());
         } else {
             requestBuilder.setReqMsg(sendMsgReqVO.getMsg());
@@ -121,6 +130,16 @@ public class CIMServer {
         ChannelFuture future = socketChannel.writeAndFlush(protocol);
         cimServerMetrics.pushSuccess();
         future.addListener((ChannelFutureListener) channelFuture ->
-                log.info("server push {} msg:[{}], socketChannel:{}", isBatch ? "batch" : "single", sendMsgReqVO, socketChannel));
+                log.info("server push {} msg:[{}], socketChannel:{}",
+                        alignedBatch ? "batch" : "single", sendMsgReqVO, socketChannel));
+        return true;
+    }
+
+    private static boolean isAlignedBatch(SendMsgReqVO sendMsgReqVO) {
+        List<String> batchMsg = sendMsgReqVO.getBatchMsg();
+        List<Long> batchMessageIds = sendMsgReqVO.getBatchMessageIds();
+        return batchMsg != null && batchMessageIds != null
+                && !batchMsg.isEmpty() && !batchMessageIds.isEmpty()
+                && batchMsg.size() == batchMessageIds.size();
     }
 }

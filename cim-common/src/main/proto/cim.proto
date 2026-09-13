@@ -11,6 +11,8 @@ message Request{
   BaseCommand cmd = 3;
   map<string, string> properties = 4;
   repeated string batchReqMsg = 5;
+  // 与 batchReqMsg 按下标一一对应；合法批量须两者等长且均 > 0
+  repeated int64 batchMessageId = 6;
 }
 
 message Response{
@@ -19,6 +21,8 @@ message Response{
   BaseCommand cmd = 3;
   map<string, string> properties = 4;
   repeated string batchResMsg = 5;
+  // 与 batchResMsg 按下标一一对应；合法批量须两者等长且均 > 0
+  repeated int64 batchMessageId = 6;
 }
 
 enum BaseCommand{

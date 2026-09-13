@@ -14,6 +14,11 @@ public interface OfflineMsgStore {
 
     List<OfflineMsg> fetch(Long userId);
 
+    /**
+     * 拉取待发送消息，条数不超过 {@code limit}。
+     */
+    List<OfflineMsg> fetch(Long userId, int limit);
+
     @Deprecated
     void markDelivered(Long userId, List<Long> messageIds);
 

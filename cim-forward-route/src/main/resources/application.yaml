@@ -87,4 +87,5 @@ cim:
   delivery:
     ack-timeout-seconds: 10
     max-retry: 3
+    offline-batch-size: 30
 
